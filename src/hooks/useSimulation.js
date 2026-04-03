@@ -1,35 +1,39 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { facilities as facilityDefs, FACILITY_PRIMARY } from '../data/facilities';
+import { dataCenters, PRIMARY_FACILITY } from '../data/dataCenters';
 import {
-  FREQ_NOMINAL, FREQ_HIGH, FREQ_LOW, FREQ_CRITICAL,
+  FREQ_NOMINAL, FREQ_HIGH, FREQ_LOW,
   TICK_MS, HISTORY_LENGTH, TRIGGER_MAGNITUDE, TRIGGER_DECAY,
-  STATUS, STATUS_COLORS,
-  MINING_REVENUE_PER_SEC, GRID_SERVICE_PER_MW_SEC,
-  BATTERY_INITIAL, BATTERY_DRAIN_CURTAILING, BATTERY_DRAIN_SHEDDING,
-  BATTERY_RECHARGE, BATTERY_MIN, BATTERY_MAX,
+  STATUS, EVENT_TYPE,
+  DVFS_MIN, DVFS_MAX,
+  CAPACITY_PAYMENT_PER_DAY, RESPONSE_EVENT_RATE, REGULATION_RATE_PER_SEC,
 } from '../data/constants';
 
 function getStatus(freq) {
-  if (freq > FREQ_HIGH) return STATUS.ABSORBING;
-  if (freq >= FREQ_LOW) return STATUS.NOMINAL;
-  if (freq >= FREQ_CRITICAL) return STATUS.CURTAILING;
-  return STATUS.SHEDDING;
+  if (freq > FREQ_HIGH || freq < FREQ_LOW) return STATUS.RESPONDING;
+  return STATUS.STANDBY;
 }
 
-function getCurtailmentMW(flexibleMW, freq) {
-  if (freq >= FREQ_LOW) return 0;
-  if (freq >= FREQ_CRITICAL) {
-    const ratio = (FREQ_LOW - freq) / (FREQ_LOW - FREQ_CRITICAL);
-    return flexibleMW * 0.5 * ratio;
-  }
-  const ratio = Math.min(1, (FREQ_CRITICAL - freq) / 0.03);
-  return flexibleMW * (0.5 + 0.5 * ratio);
+function getEventType(freq) {
+  if (freq > FREQ_HIGH) return EVENT_TYPE.SUPPLY;
+  if (freq < FREQ_LOW) return EVENT_TYPE.DEMAND;
+  return null;
 }
 
-function getAbsorptionMW(flexibleMW, freq) {
+// DVFS scaling for flexible racks during DEMAND event
+// freq below 59.98 → scale down toward 40%
+function getDVFSScale(freq) {
+  if (freq >= FREQ_LOW && freq <= FREQ_HIGH) return DVFS_MAX; // 100%
+  if (freq > FREQ_HIGH) return DVFS_MAX; // supply → ramp up to 100%
+  // demand → scale down proportionally
+  const ratio = Math.min(1, (FREQ_LOW - freq) / 0.05);
+  return DVFS_MAX - ratio * (DVFS_MAX - DVFS_MIN);
+}
+
+// During SUPPLY events, flexible racks ramp up to absorb extra power
+function getSupplyScale(freq) {
   if (freq <= FREQ_HIGH) return 0;
   const ratio = Math.min(1, (freq - FREQ_HIGH) / 0.03);
-  return flexibleMW * ratio;
+  return ratio; // 0 to 1, fraction of additional absorption
 }
 
 function computeFrequency(tick, triggerTick) {
@@ -42,7 +46,6 @@ function computeFrequency(tick, triggerTick) {
 
   let freq = FREQ_NOMINAL + noise;
 
-  // Apply trigger event decay
   if (triggerTick !== null) {
     const elapsed = (tick - triggerTick);
     if (elapsed >= 0 && elapsed < 40) {
@@ -63,15 +66,19 @@ export function useSimulation() {
     frequencyHistory: [],
     events: [],
     prevStatuses: {},
-    earnings: { gridRevenue: 0, miningLost: 0 },
-    battery: BATTERY_INITIAL,
+    revenue: {
+      capacityPayment: 0,
+      responseEvents: 0,
+      frequencyRegulation: 0,
+      eventCount: 0,
+    },
   });
 
   const [snapshot, setSnapshot] = useState(() => buildSnapshot(simRef.current, FREQ_NOMINAL));
 
   const triggerEvent = useCallback(() => {
     const sim = simRef.current;
-    if (sim.triggerTick !== null && (sim.tick - sim.triggerTick) < 25) return; // cooldown
+    if (sim.triggerTick !== null && (sim.tick - sim.triggerTick) < 25) return;
     sim.triggerTick = sim.tick;
   }, []);
 
@@ -82,60 +89,66 @@ export function useSimulation() {
 
       const freq = computeFrequency(sim.tick, sim.triggerTick);
       const status = getStatus(freq);
+      const eventType = getEventType(freq);
+      const dvfsScale = getDVFSScale(freq);
+      const supplyScale = getSupplyScale(freq);
 
-      // Update facilities
-      const facilityStates = facilityDefs.map(f => {
-        const curtailedMW = getCurtailmentMW(f.flexibleMW, freq);
-        const absorptionMW = getAbsorptionMW(f.flexibleMW, freq);
-        const currentLoad = f.totalMW - curtailedMW + absorptionMW;
-        const facilityStatus = getStatus(freq);
-        const prevStatus = sim.prevStatuses[f.id];
+      // Update data centers
+      const dcStates = dataCenters.map(dc => {
+        const dcStatus = getStatus(freq);
+        const dcEventType = getEventType(freq);
+        const prevStatus = sim.prevStatuses[dc.id];
+
+        // Calculate current power draw
+        let currentDraw;
+        if (dcEventType === EVENT_TYPE.DEMAND) {
+          currentDraw = dc.committedMW + dc.flexibleMW * dvfsScale;
+        } else if (dcEventType === EVENT_TYPE.SUPPLY) {
+          currentDraw = dc.committedMW + dc.flexibleMW * (1 + supplyScale * 0.2);
+        } else {
+          currentDraw = dc.totalMW;
+        }
+
+        const mwChange = currentDraw - dc.totalMW;
 
         // Generate event on status transition
-        if (prevStatus && prevStatus !== facilityStatus) {
+        if (prevStatus && prevStatus !== dcStatus && dcStatus === STATUS.RESPONDING) {
           sim.events.unshift({
             id: ++eventIdCounter,
             timestamp: new Date(),
-            facilityId: f.id,
-            facilityName: f.name,
-            fromStatus: prevStatus,
-            toStatus: facilityStatus,
-            mwChange: facilityStatus === STATUS.NOMINAL ? curtailedMW : -curtailedMW,
+            dcId: dc.id,
+            dcName: dc.name,
+            zone: dc.zone,
+            eventType: dcEventType,
             frequency: freq,
+            dvfsScale,
+            mwChange: Math.abs(mwChange).toFixed(1),
+            action: dcEventType === EVENT_TYPE.DEMAND
+              ? `Scaled to ${Math.round(dvfsScale * 100)}%`
+              : `Ramped to ${Math.round((1 + supplyScale * 0.2) * 100)}%`,
           });
           if (sim.events.length > 50) sim.events.length = 50;
+          sim.revenue.eventCount += 1;
+          sim.revenue.responseEvents += RESPONSE_EVENT_RATE;
         }
 
-        sim.prevStatuses[f.id] = facilityStatus;
+        sim.prevStatuses[dc.id] = dcStatus;
 
         return {
-          ...f,
-          status: facilityStatus,
-          statusColor: STATUS_COLORS[facilityStatus],
-          curtailedMW,
-          absorptionMW,
-          currentLoad,
-          responseLatency: 200 + Math.floor(Math.random() * 300),
+          ...dc,
+          status: dcStatus,
+          eventType: dcEventType,
+          dvfsScale,
+          currentDraw: +currentDraw.toFixed(2),
+          mwChange: +mwChange.toFixed(2),
+          responseLatency: 80 + Math.floor(Math.random() * 40),
         };
       });
 
-      // Update primary facility earnings & battery
-      const primary = facilityStates.find(f => f.id === FACILITY_PRIMARY);
-      if (primary) {
-        const curtailRatio = primary.curtailedMW / primary.flexibleMW;
-        const miningRevenue = MINING_REVENUE_PER_SEC * (1 - curtailRatio * 0.8);
-        const gridRevenue = GRID_SERVICE_PER_MW_SEC * primary.curtailedMW;
-        sim.earnings.gridRevenue += gridRevenue;
-        sim.earnings.miningLost += MINING_REVENUE_PER_SEC * curtailRatio * 0.8;
-
-        // Battery
-        if (primary.status === STATUS.SHEDDING) {
-          sim.battery = Math.max(BATTERY_MIN, sim.battery - BATTERY_DRAIN_SHEDDING);
-        } else if (primary.status === STATUS.CURTAILING) {
-          sim.battery = Math.max(BATTERY_MIN, sim.battery - BATTERY_DRAIN_CURTAILING);
-        } else {
-          sim.battery = Math.min(BATTERY_MAX, sim.battery + BATTERY_RECHARGE);
-        }
+      // Revenue accumulation
+      sim.revenue.capacityPayment = (CAPACITY_PAYMENT_PER_DAY / 86400) * sim.tick;
+      if (status === STATUS.RESPONDING) {
+        sim.revenue.frequencyRegulation += REGULATION_RATE_PER_SEC;
       }
 
       // Frequency history
@@ -150,17 +163,19 @@ export function useSimulation() {
         tick: sim.tick,
         frequency: freq,
         status,
+        eventType,
+        dvfsScale,
         frequencyHistory: [...sim.frequencyHistory],
-        facilities: facilityStates,
+        dataCenters: dcStates,
         events: [...sim.events],
-        triggerEvent: null, // placeholder, overwritten below
         isEventActive,
-        totalCurtailedMW: facilityStates.reduce((sum, f) => sum + f.curtailedMW, 0),
-        totalAbsorptionMW: facilityStates.reduce((sum, f) => sum + f.absorptionMW, 0),
-        earnings: { ...sim.earnings },
-        battery: sim.battery,
+        totalFlexibleMW: dcStates.reduce((sum, dc) => sum + dc.flexibleMW, 0),
+        totalCapacityMW: dcStates.reduce((sum, dc) => sum + dc.totalMW, 0),
+        totalCurrentDraw: dcStates.reduce((sum, dc) => sum + dc.currentDraw, 0),
+        revenue: { ...sim.revenue },
+        primaryFacility: dcStates.find(dc => dc.id === PRIMARY_FACILITY),
         avgResponseLatency: Math.round(
-          facilityStates.reduce((sum, f) => sum + f.responseLatency, 0) / facilityStates.length
+          dcStates.reduce((sum, dc) => sum + dc.responseLatency, 0) / dcStates.length
         ),
       });
     }, TICK_MS);
@@ -175,23 +190,26 @@ function buildSnapshot(sim, freq) {
   return {
     tick: 0,
     frequency: freq,
-    status: STATUS.NOMINAL,
+    status: STATUS.STANDBY,
+    eventType: null,
+    dvfsScale: 1.0,
     frequencyHistory: [],
-    facilities: facilityDefs.map(f => ({
-      ...f,
-      status: STATUS.NOMINAL,
-      statusColor: STATUS_COLORS[STATUS.NOMINAL],
-      curtailedMW: 0,
-      absorptionMW: 0,
-      currentLoad: f.totalMW,
+    dataCenters: dataCenters.map(dc => ({
+      ...dc,
+      status: STATUS.STANDBY,
+      eventType: null,
+      dvfsScale: 1.0,
+      currentDraw: dc.totalMW,
+      mwChange: 0,
       responseLatency: 0,
     })),
     events: [],
     isEventActive: false,
-    totalCurtailedMW: 0,
-    totalAbsorptionMW: 0,
-    earnings: { gridRevenue: 0, miningLost: 0 },
-    battery: BATTERY_INITIAL,
+    totalFlexibleMW: dataCenters.reduce((sum, dc) => sum + dc.flexibleMW, 0),
+    totalCapacityMW: dataCenters.reduce((sum, dc) => sum + dc.totalMW, 0),
+    totalCurrentDraw: dataCenters.reduce((sum, dc) => sum + dc.totalMW, 0),
+    revenue: { capacityPayment: 0, responseEvents: 0, frequencyRegulation: 0, eventCount: 0 },
+    primaryFacility: { ...dataCenters.find(dc => dc.id === PRIMARY_FACILITY), status: STATUS.STANDBY, eventType: null, dvfsScale: 1.0, currentDraw: 50, mwChange: 0, responseLatency: 0 },
     avgResponseLatency: 0,
   };
 }

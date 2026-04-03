@@ -1,12 +1,12 @@
 import MetricCard from '../MetricCard';
-import { STATUS_COLORS } from '../../data/constants';
+import { STATUS } from '../../data/constants';
 
-export default function GridStats({ frequency, status, totalCurtailedMW, facilities, avgResponseLatency }) {
-  const respondingCount = facilities.filter(f => f.status !== 'NOMINAL').length;
-  const freqColor = STATUS_COLORS[status];
+export default function GridStats({ frequency, status, totalFlexibleMW, totalCapacityMW, totalCurrentDraw, dataCenters, avgResponseLatency }) {
+  const respondingCount = dataCenters.filter(dc => dc.status === STATUS.RESPONDING).length;
+  const freqColor = status === STATUS.RESPONDING ? '#f59e0b' : '#3b82f6';
 
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-5 gap-3">
       <MetricCard
         label="Grid Frequency"
         value={frequency.toFixed(3)}
@@ -14,23 +14,30 @@ export default function GridStats({ frequency, status, totalCurtailedMW, facilit
         color={freqColor}
       />
       <MetricCard
-        label="Total Curtailed"
-        value={totalCurtailedMW.toFixed(1)}
+        label="Flexible Capacity"
+        value={totalFlexibleMW.toFixed(0)}
         unit="MW"
-        color={totalCurtailedMW > 0 ? '#f59e0b' : '#22c55e'}
+        color="#3b82f6"
+        subtext={`of ${totalCapacityMW} MW total`}
       />
       <MetricCard
-        label="Facilities Responding"
-        value={`${respondingCount} / ${facilities.length}`}
+        label="Current Draw"
+        value={totalCurrentDraw.toFixed(1)}
+        unit="MW"
+        color={status === STATUS.RESPONDING ? '#f59e0b' : '#22c55e'}
+      />
+      <MetricCard
+        label="DCs Responding"
+        value={`${respondingCount} / ${dataCenters.length}`}
         color={respondingCount > 0 ? '#f59e0b' : '#22c55e'}
-        subtext={respondingCount > 0 ? 'ACTIVE RESPONSE' : 'ALL NOMINAL'}
+        subtext={respondingCount > 0 ? 'ACTIVE RESPONSE' : 'ALL STANDBY'}
       />
       <MetricCard
-        label="Avg Response Latency"
+        label="Response Latency"
         value={avgResponseLatency}
         unit="ms"
         color="#e0e0e8"
-        subtext="SIMULATED"
+        subtext="AVG ACROSS FLEET"
       />
     </div>
   );

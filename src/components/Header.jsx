@@ -1,70 +1,86 @@
-import { STATUS_COLORS } from '../data/constants';
+import { STATUS } from '../data/constants';
 
-export default function Header({ frequency, status, view, onViewChange }) {
-  const freqColor = STATUS_COLORS[status] || '#e0e0e8';
-
+export default function Header({ frequency, status, eventType, view, onViewChange, triggerEvent, isEventActive }) {
   return (
-    <header className="border-b border-grid-border bg-grid-surface px-6 py-3 flex items-center justify-between">
-      <div className="flex items-center gap-6">
-        <h1 className="text-lg font-mono font-bold tracking-tight">
-          <span className="text-accent">GRID</span>
-          <span className="text-grid-text">SHIFT</span>
-        </h1>
-        <div className="flex items-center gap-2 border-l border-grid-border pl-6">
-          <span className="text-[10px] font-mono uppercase tracking-[0.15em] text-grid-dim">
-            FREQ
-          </span>
-          <span
-            className="text-lg font-mono font-bold tabular-nums"
-            style={{ color: freqColor }}
-          >
-            {frequency.toFixed(3)}
-          </span>
-          <span className="text-xs font-mono text-grid-dim">Hz</span>
+    <header className="flex items-center justify-between px-6 py-3 bg-grid-surface border-b border-grid-border relative z-10">
+      {/* Brand */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+          <span className="text-sm font-semibold tracking-wide text-grid-text">HIVEMIND</span>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span
-            className="w-2 h-2 rounded-full"
-            style={{
-              backgroundColor: freqColor,
-              boxShadow: `0 0 8px ${freqColor}`,
-            }}
-          />
-          <span
-            className="text-[10px] font-mono uppercase tracking-[0.15em]"
-            style={{ color: freqColor }}
-          >
+        <span className="text-[10px] font-mono text-grid-dim uppercase tracking-[0.15em]">
+          AI Grid Coordination
+        </span>
+      </div>
+
+      {/* Frequency display */}
+      <div className="flex items-center gap-6">
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-mono text-grid-dim uppercase">FREQ</span>
+          <span className={`text-xl font-mono font-bold ${
+            status === STATUS.RESPONDING ? 'text-status-responding' : 'text-accent'
+          }`}>
+            {frequency.toFixed(3)}
+            <span className="text-xs text-grid-dim ml-1">Hz</span>
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className={`w-1.5 h-1.5 rounded-full ${
+            status === STATUS.RESPONDING ? 'bg-status-responding animate-pulse' : 'bg-accent'
+          }`} />
+          <span className={`text-[11px] font-mono font-medium ${
+            status === STATUS.RESPONDING ? 'text-status-responding' : 'text-accent'
+          }`}>
             {status}
           </span>
+          {eventType && (
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
+              eventType === 'SUPPLY' ? 'bg-event-supply/20 text-event-supply' : 'bg-event-demand/20 text-event-demand'
+            }`}>
+              {eventType}
+            </span>
+          )}
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
-        <div className="flex bg-grid-bg rounded-sm border border-grid-border overflow-hidden">
+      {/* Controls */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={triggerEvent}
+          disabled={isEventActive}
+          className={`px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider border rounded-sm transition-colors ${
+            isEventActive
+              ? 'border-grid-border text-grid-dim cursor-not-allowed'
+              : 'border-event-demand text-event-demand hover:bg-event-demand/10 cursor-pointer'
+          }`}
+        >
+          {isEventActive ? 'Event Active' : 'Trigger Demand'}
+        </button>
+
+        <div className="flex border border-grid-border rounded-sm overflow-hidden">
           <button
             onClick={() => onViewChange('grid')}
-            className={`px-4 py-1.5 text-xs font-mono uppercase tracking-wider transition-colors cursor-pointer ${
+            className={`px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider transition-colors cursor-pointer ${
               view === 'grid'
-                ? 'bg-grid-surface text-accent'
+                ? 'bg-accent text-grid-bg'
                 : 'text-grid-dim hover:text-grid-text'
             }`}
           >
-            Grid Operator
+            Grid
           </button>
           <button
             onClick={() => onViewChange('facility')}
-            className={`px-4 py-1.5 text-xs font-mono uppercase tracking-wider transition-colors cursor-pointer border-l border-grid-border ${
+            className={`px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider transition-colors cursor-pointer ${
               view === 'facility'
-                ? 'bg-grid-surface text-accent'
+                ? 'bg-accent text-grid-bg'
                 : 'text-grid-dim hover:text-grid-text'
             }`}
           >
             Facility
           </button>
         </div>
-        <span className="text-xs font-mono text-grid-dim tabular-nums">
-          {new Date().toLocaleTimeString('en-US', { hour12: false })}
-        </span>
       </div>
     </header>
   );

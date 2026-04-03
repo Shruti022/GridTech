@@ -8,7 +8,7 @@ export default function FrequencyChart({ data, height = 220 }) {
     <div className="bg-grid-surface border border-grid-border rounded-sm p-4">
       <div className="flex items-center justify-between mb-3">
         <span className="text-[10px] font-mono uppercase tracking-[0.15em] text-grid-dim">
-          Grid Frequency -- Real-Time
+          NYISO Frequency -- Real-Time
         </span>
         <span className="text-[10px] font-mono text-grid-dim">
           120s window
@@ -18,8 +18,8 @@ export default function FrequencyChart({ data, height = 220 }) {
         <AreaChart data={data} margin={{ top: 5, right: 10, bottom: 5, left: 10 }}>
           <defs>
             <linearGradient id="freqGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#00ff88" stopOpacity={0.15} />
-              <stop offset="100%" stopColor="#00ff88" stopOpacity={0} />
+              <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.15} />
+              <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
             </linearGradient>
           </defs>
           <XAxis
@@ -48,14 +48,14 @@ export default function FrequencyChart({ data, height = 220 }) {
             stroke="#3b82f6"
             strokeDasharray="4 4"
             strokeOpacity={0.4}
-            label={{ value: 'HIGH', position: 'right', fontSize: 9, fill: '#3b82f6' }}
+            label={{ value: 'SUPPLY', position: 'right', fontSize: 9, fill: '#3b82f6' }}
           />
           <ReferenceLine
             y={FREQ_LOW}
             stroke="#f59e0b"
             strokeDasharray="4 4"
             strokeOpacity={0.4}
-            label={{ value: 'LOW', position: 'right', fontSize: 9, fill: '#f59e0b' }}
+            label={{ value: 'DEMAND', position: 'right', fontSize: 9, fill: '#f59e0b' }}
           />
           <ReferenceLine
             y={FREQ_CRITICAL}
@@ -74,7 +74,7 @@ export default function FrequencyChart({ data, height = 220 }) {
           <Line
             type="monotone"
             dataKey="value"
-            stroke="#00ff88"
+            stroke="#3b82f6"
             strokeWidth={1.5}
             dot={false}
             isAnimationActive={false}

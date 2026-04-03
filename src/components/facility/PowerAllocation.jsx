@@ -1,12 +1,13 @@
-export default function PowerAllocation({ facility }) {
-  const mining = facility.currentLoad - facility.absorptionMW;
-  const curtailed = facility.curtailedMW;
-  const absorption = facility.absorptionMW;
-  const total = facility.totalMW + facility.absorptionMW;
+import { TOTAL_CAPACITY_MW, COMMITTED_MW, FLEXIBLE_MW, STATUS } from '../../data/constants';
 
-  const miningPct = (mining / total) * 100;
-  const curtailedPct = (curtailed / total) * 100;
-  const absorptionPct = (absorption / total) * 100;
+export default function PowerDisplay({ primaryFacility }) {
+  const currentDraw = primaryFacility?.currentDraw || TOTAL_CAPACITY_MW;
+  const dvfsScale = primaryFacility?.dvfsScale || 1.0;
+  const flexibleDraw = FLEXIBLE_MW * dvfsScale;
+  const isResponding = primaryFacility?.status === STATUS.RESPONDING;
+
+  const committedPct = (COMMITTED_MW / TOTAL_CAPACITY_MW) * 100;
+  const flexiblePct = (flexibleDraw / TOTAL_CAPACITY_MW) * 100;
 
   return (
     <div className="bg-grid-surface border border-grid-border rounded-sm p-4">
@@ -16,9 +17,9 @@ export default function PowerAllocation({ facility }) {
 
       <div className="mt-3 flex items-center gap-3">
         <span className="text-2xl font-mono font-bold tabular-nums text-grid-text">
-          {facility.currentLoad.toFixed(1)}
+          {currentDraw.toFixed(1)}
         </span>
-        <span className="text-xs font-mono text-grid-dim">MW current load</span>
+        <span className="text-xs font-mono text-grid-dim">MW current draw</span>
       </div>
 
       {/* Stacked bar */}
@@ -26,48 +27,39 @@ export default function PowerAllocation({ facility }) {
         <div
           className="h-full transition-all duration-500"
           style={{
-            width: `${miningPct}%`,
-            backgroundColor: '#22c55e',
+            width: `${committedPct}%`,
+            backgroundColor: '#6366f1',
           }}
         />
-        {curtailedPct > 0 && (
-          <div
-            className="h-full transition-all duration-500"
-            style={{
-              width: `${curtailedPct}%`,
-              backgroundColor: '#f59e0b',
-            }}
-          />
-        )}
-        {absorptionPct > 0 && (
-          <div
-            className="h-full transition-all duration-500"
-            style={{
-              width: `${absorptionPct}%`,
-              backgroundColor: '#3b82f6',
-            }}
-          />
-        )}
+        <div
+          className="h-full transition-all duration-500"
+          style={{
+            width: `${flexiblePct}%`,
+            backgroundColor: isResponding ? '#f59e0b' : '#3b82f6',
+          }}
+        />
       </div>
 
       {/* Legend */}
-      <div className="mt-2 flex gap-4 text-[10px] font-mono">
-        <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 bg-status-nominal rounded-sm" />
-          Mining: {mining.toFixed(1)} MW
-        </span>
-        {curtailed > 0 && (
-          <span className="flex items-center gap-1.5 text-status-curtailing">
-            <span className="w-2 h-2 bg-status-curtailing rounded-sm" />
-            Curtailed: {curtailed.toFixed(1)} MW
+      <div className="mt-2 grid grid-cols-4 gap-2 text-[10px] font-mono">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-grid-dim">Total Capacity</span>
+          <span className="text-grid-text font-bold">{TOTAL_CAPACITY_MW} MW</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-grid-dim">Committed</span>
+          <span className="text-committed font-bold">{COMMITTED_MW} MW</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-grid-dim">Flexible</span>
+          <span className="text-accent font-bold">{FLEXIBLE_MW} MW</span>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-grid-dim">Current Draw</span>
+          <span className={`font-bold ${isResponding ? 'text-status-responding' : 'text-grid-text'}`}>
+            {currentDraw.toFixed(1)} MW
           </span>
-        )}
-        {absorption > 0 && (
-          <span className="flex items-center gap-1.5 text-status-absorbing">
-            <span className="w-2 h-2 bg-status-absorbing rounded-sm" />
-            Absorbing: {absorption.toFixed(1)} MW
-          </span>
-        )}
+        </div>
       </div>
     </div>
   );
